@@ -3,7 +3,9 @@
 from flask import Blueprint, jsonify, request
 
 from models.recommender import ProductRecommender
-from services.database import interactions_collection, products_collection, users_collection
+from services.database import get_db, interactions_collection, products_collection, users_collection
+from services.search import search_products as rank_search_results
+from services.search import suggest_queries
 
 api_bp = Blueprint("api", __name__)
 
@@ -34,7 +36,20 @@ def refresh_recommender():
 
 @api_bp.route("/health")
 def health():
-    return jsonify({"status": "ok", "service": "recommendation-api"})
+    db_ok = False
+    product_count = 0
+    try:
+        get_db().command("ping")
+        db_ok = True
+        product_count = products_collection().count_documents({})
+    except Exception:
+        pass
+    return jsonify({
+        "status": "ok" if db_ok else "degraded",
+        "service": "recommendation-api",
+        "database": "connected" if db_ok else "unavailable",
+        "product_count": product_count,
+    })
 
 
 @api_bp.route("/products")
@@ -49,19 +64,27 @@ def list_products():
 
 @api_bp.route("/products/search")
 def search_products():
-    q = (request.args.get("q") or "").strip().lower()
+    q = (request.args.get("q") or "").strip()
     if not q:
-        return jsonify({"products": [], "query": q})
+        return jsonify({"products": [], "query": q, "count": 0})
 
-    cursor = products_collection().find()
+    docs = list(products_collection().find())
+    ranked = rank_search_results(docs, q)
     results = []
-    for doc in cursor:
-        name = doc.get("name", "").lower()
-        desc = doc.get("description", "").lower()
-        cat = doc.get("category", "").lower()
-        if q in name or q in desc or q in cat:
-            results.append(_serialize_product(doc))
+    for doc in ranked:
+        item = _serialize_product(doc)
+        if "relevance_score" in doc:
+            item["relevance_score"] = doc["relevance_score"]
+        results.append(item)
     return jsonify({"products": results, "query": q, "count": len(results)})
+
+
+@api_bp.route("/products/search/suggestions")
+def search_suggestions():
+    partial = (request.args.get("q") or "").strip()
+    docs = list(products_collection().find())
+    suggestions = suggest_queries(docs, partial)
+    return jsonify({"suggestions": suggestions, "query": partial})
 
 
 @api_bp.route("/products/<product_id>")

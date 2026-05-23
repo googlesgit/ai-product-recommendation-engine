@@ -1,4 +1,11 @@
-export default function ProductCard({ product, onSelect, onLike, selected, showScore }) {
+export default function ProductCard({
+  product,
+  onSelect,
+  onLike,
+  selected,
+  showScore,
+  showRelevance,
+}) {
   return (
     <article
       className={`card ${selected ? 'selected' : ''}`}
@@ -13,6 +20,9 @@ export default function ProductCard({ product, onSelect, onLike, selected, showS
       </div>
       {showScore && product.similarity_score != null && (
         <p className="score">Similarity: {(product.similarity_score * 100).toFixed(1)}%</p>
+      )}
+      {showRelevance && product.relevance_score != null && (
+        <p className="score relevance">Match score: {product.relevance_score}</p>
       )}
       {product.recommendation_reason && (
         <p className="reason">{product.recommendation_reason}</p>

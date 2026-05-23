@@ -16,6 +16,8 @@ export const api = {
   health: () => request('/health'),
   getProducts: () => request('/products'),
   searchProducts: (q) => request(`/products/search?q=${encodeURIComponent(q)}`),
+  getSearchSuggestions: (q) =>
+    request(`/products/search/suggestions?q=${encodeURIComponent(q)}`),
   getProduct: (id) => request(`/products/${id}`),
   getSimilar: (id, k = 5) => request(`/similar/${id}?k=${k}`),
   getRecommendations: (userId, k = 8) => request(`/recommendations/user/${userId}?k=${k}`),

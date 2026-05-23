@@ -23,18 +23,28 @@ Browser (React)  --HTTP-->  Flask API  --pymongo-->  MongoDB
                          (sklearn KNN + cosine)
 ```
 
+## Highlights (portfolio-ready)
+
+- **Smart search** — multi-word queries (e.g. `micro oven` → microwave), relevance scoring, live debounced search, suggestions
+- **Personalized For You** — KNN on user taste profile built from likes
+- **Similarity panel** — cosine similarity on engineered features (price, category, rating, TF-IDF text)
+- **48-product catalog** — diverse categories; auto-seeds MongoDB on first API start if empty
+- **Polished UI** — search results section, quick-search chips, toast on like, catalog stats
+
 ## Quick start
 
 ```bash
 # From project root
 docker compose up --build
 
-# Seed database (in another terminal)
+# Re-seed after pulling new catalog (optional if DB already has data)
 docker compose exec api python scripts/seed_data.py
 
 # Open app
 open http://localhost:3000
 ```
+
+> **Note:** The API auto-seeds when the database is empty. If you already ran an older seed, run `seed_data.py` again to load the expanded catalog (48 products).
 
 **Without Docker** (local dev):
 
@@ -60,7 +70,8 @@ cd frontend && npm install && npm start
 |--------|------|---------|
 | GET | `/api/health` | Health check |
 | GET | `/api/products` | List products |
-| GET | `/api/products/search?q=` | Text search |
+| GET | `/api/products/search?q=` | Smart search (multi-token + relevance score) |
+| GET | `/api/products/search/suggestions?q=` | Search autocomplete hints |
 | GET | `/api/products/<id>` | Product detail |
 | GET | `/api/similar/<id>?k=5` | Similar products + cosine scores |
 | GET | `/api/recommendations/user/<id>?k=8` | Personalized for user |
