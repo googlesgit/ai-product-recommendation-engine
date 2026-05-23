@@ -31,7 +31,18 @@ Browser (React)  --HTTP-->  Flask API  --pymongo-->  MongoDB
 - **48-product catalog** — diverse categories; auto-seeds MongoDB on first API start if empty
 - **Polished UI** — search results section, quick-search chips, toast on like, catalog stats
 
-## Quick start
+## Live demo (GitHub Pages + Render)
+
+| | URL |
+|--|-----|
+| **App (UI)** | https://googlesgit.github.io/ai-product-recommendation-engine/ |
+| **Setup guide** | [docs/DEPLOY.md](docs/DEPLOY.md) |
+
+GitHub Pages serves the React build. The Flask API runs on Render with MongoDB Atlas — follow **DEPLOY.md** once to connect everything.
+
+---
+
+## Quick start (local)
 
 ```bash
 # From project root

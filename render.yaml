@@ -1,0 +1,20 @@
+# Render Blueprint — Flask API (free tier).
+# Connect repo at https://dashboard.render.com → New → Blueprint
+# Set MONGO_URI in the dashboard after MongoDB Atlas is ready.
+
+services:
+  - type: web
+    name: ai-product-recommendation-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 2 app:app
+    healthCheckPath: /api/health
+    envVars:
+      - key: MONGO_DB
+        value: recommendations
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: MONGO_URI
+        sync: false

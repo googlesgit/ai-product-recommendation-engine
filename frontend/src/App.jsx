@@ -81,7 +81,10 @@ export default function App() {
         setCatalog(productsRes.products || []);
         await loadRecommendations(selectedUser);
       } catch (e) {
-        setError(e.message + ' — Is the Flask API running on port 5001?');
+        const hint = import.meta.env.VITE_API_URL
+          ? ' Check that the API is up and CORS allows this origin.'
+          : ' Set VITE_API_URL when building for production (see docs/DEPLOY.md). Locally: docker compose up.';
+        setError(e.message + hint);
       } finally {
         setLoading(false);
       }
