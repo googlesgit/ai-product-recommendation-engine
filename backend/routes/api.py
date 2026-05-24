@@ -70,9 +70,13 @@ def health():
 
 @api_bp.route("/seed", methods=["GET", "POST"])
 def bootstrap_seed():
-    """Load catalog from DummyJSON when DB is empty."""
+    """Load or upgrade catalog from DummyJSON."""
+    from services.catalog import catalog_needs_sync
+
     existing = products_collection().count_documents({})
-    if existing > 0:
+    force = request.args.get("force", "false").lower() in ("1", "true", "yes")
+
+    if existing > 0 and not force and not catalog_needs_sync():
         return jsonify({
             "ok": True,
             "already_seeded": True,
@@ -83,13 +87,15 @@ def bootstrap_seed():
     from scripts.seed_data import seed_demo_users
     from scripts.sync_catalog import sync_catalog
 
-    sync_catalog()
+    upgraded = existing > 0
+    sync_catalog(drop_legacy=upgraded or force)
     seed_demo_users()
     refresh_recommender()
     count = products_collection().count_documents({})
     return jsonify({
         "ok": True,
         "already_seeded": False,
+        "upgraded": upgraded,
         "product_count": count,
         "message": f"Loaded {count} products from catalog API",
     }), 201

@@ -257,7 +257,7 @@ export default function App() {
     return <div className="app loading">Loading recommendation engine...</div>;
   }
 
-  const displayProducts = searchMode ? searchResults : catalog;
+  // Browse grid always uses paginated catalog; search results are a separate section
   const forYouHint =
     profileMode === 'session'
       ? sessionStats.likes > 0
@@ -501,15 +501,19 @@ export default function App() {
           </>
         )}
         <div className="grid">
-          {displayProducts.map((p) => (
-            <ProductCard
-              key={p.id}
-              product={p}
-              selected={selectedProduct?.id === p.id}
-              onSelect={handleSelectProduct}
-              onLike={handleLike}
-            />
-          ))}
+          {catalog.length === 0 && !searchMode ? (
+            <p className="empty">Loading catalog…</p>
+          ) : (
+            catalog.map((p) => (
+              <ProductCard
+                key={p.id}
+                product={p}
+                selected={selectedProduct?.id === p.id}
+                onSelect={handleSelectProduct}
+                onLike={handleLike}
+              />
+            ))
+          )}
         </div>
         {!searchMode && catalog.length > 0 && (
           <div className="catalog-footer">

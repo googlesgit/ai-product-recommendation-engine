@@ -28,11 +28,22 @@ def _token_matches(token: str, *fields: str) -> bool:
     return False
 
 
+# Common queries → category slugs when the synced feed has no literal match
+QUERY_CATEGORY_HINTS: dict[str, list[str]] = {
+    "iphone": ["smartphones", "mobile-accessories"],
+    "phone": ["smartphones"],
+    "laptop": ["laptops"],
+    "electronics": ["laptops", "smartphones", "mobile-accessories", "tablets"],
+}
+
+
 def _searchable_text(doc: dict) -> str:
     parts = [
         doc.get("name", ""),
         doc.get("description", ""),
         doc.get("category", ""),
+        doc.get("category_slug", ""),
+        doc.get("brand", ""),
     ]
     tags = doc.get("tags") or []
     if isinstance(tags, list):
@@ -65,7 +76,12 @@ def score_product(doc: dict, query: str, tokens: list[str]) -> float:
             token_score = 0.0
             if _token_matches(token, doc.get("name", "")):
                 token_score = 12
-            elif _token_matches(token, doc.get("category", "")):
+            elif _token_matches(
+                token,
+                doc.get("category", ""),
+                doc.get("category_slug", ""),
+                doc.get("brand", ""),
+            ):
                 token_score = 8
             elif _token_matches(token, doc.get("description", "")):
                 token_score = 6
@@ -133,6 +149,26 @@ def _rank_any_token(docs: list[dict], query: str, tokens: list[str], limit: int)
     return out
 
 
+def _rank_category_hints(docs: list[dict], query: str, limit: int) -> list[dict[str, Any]]:
+    slugs = QUERY_CATEGORY_HINTS.get(_normalize(query), [])
+    if not slugs:
+        return []
+    ranked: list[tuple[float, dict]] = []
+    for doc in docs:
+        slug = _normalize(str(doc.get("category_slug", "")))
+        if slug not in slugs:
+            continue
+        score = 15 + float(doc.get("rating") or 0) + min(float(doc.get("review_count") or 0) / 500, 5)
+        ranked.append((score, doc))
+    ranked.sort(key=lambda x: (-x[0], -x[1].get("rating", 0)))
+    out = []
+    for s, doc in ranked[:limit]:
+        item = dict(doc)
+        item["relevance_score"] = round(s, 2)
+        out.append(item)
+    return out
+
+
 def search_products(docs: list[dict], query: str, limit: int = 48) -> list[dict[str, Any]]:
     q = _normalize(query)
     if not q:
@@ -145,8 +181,11 @@ def search_products(docs: list[dict], query: str, limit: int = 48) -> list[dict[
         return results
     # Fallback: any token matches (e.g. "running" or partial terms)
     if tokens:
-        return _rank_any_token(docs, query, tokens, limit)
-    return []
+        results = _rank_any_token(docs, query, tokens, limit)
+        if results:
+            return results
+    # Category hints (e.g. "iphone" → smartphones when titles use "iPhone 13 Pro")
+    return _rank_category_hints(docs, query, limit)
 
 
 def suggest_queries(docs: list[dict], partial: str, limit: int = 6) -> list[str]:

@@ -11,7 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from services.database import products_collection
 
-DUMMYJSON_URL = "https://dummyjson.com/products?limit=100"
+DUMMYJSON_BASE = "https://dummyjson.com/products"
+PAGE_SIZE = 100
 
 
 def _format_category(slug: str) -> tuple[str, str]:
@@ -43,11 +44,28 @@ def map_dummyjson_product(raw: dict) -> dict:
     }
 
 
-def fetch_products(url: str = DUMMYJSON_URL) -> list[dict]:
+def _fetch_page(url: str) -> list[dict]:
     req = urllib.request.Request(url, headers={"User-Agent": "recommendation-engine/1.0"})
     with urllib.request.urlopen(req, timeout=60) as resp:
         payload = json.loads(resp.read().decode())
     return payload.get("products") or []
+
+
+def fetch_all_products() -> list[dict]:
+    """DummyJSON has 194 products; the first page of 100 has no smartphones/iPhones."""
+    by_id: dict[int, dict] = {}
+    skip = 0
+    while True:
+        url = f"{DUMMYJSON_BASE}?limit={PAGE_SIZE}&skip={skip}"
+        batch = _fetch_page(url)
+        if not batch:
+            break
+        for item in batch:
+            by_id[item["id"]] = item
+        if len(batch) < PAGE_SIZE:
+            break
+        skip += PAGE_SIZE
+    return list(by_id.values())
 
 
 def sync_catalog(drop_legacy: bool = False) -> int:
@@ -59,7 +77,7 @@ def sync_catalog(drop_legacy: bool = False) -> int:
     if drop_legacy:
         col.delete_many({"source": {"$ne": "dummyjson"}})
 
-    raw_items = fetch_products()
+    raw_items = fetch_all_products()
     count = 0
     for raw in raw_items:
         doc = map_dummyjson_product(raw)
@@ -78,9 +96,16 @@ def sync_catalog(drop_legacy: bool = False) -> int:
     })
 
     total = col.count_documents({})
-    print(f"Synced {count} products from DummyJSON (catalog total: {total})")
+    legacy = col.count_documents({"source": {"$ne": "dummyjson"}})
+    print(
+        f"Synced {count} products from DummyJSON "
+        f"(catalog total: {total}, legacy items left: {legacy})"
+    )
+    if legacy > 0 and not drop_legacy:
+        print("Tip: re-run with --drop-legacy to remove old hand-seeded products (148 → ~194).")
     return count
 
 
 if __name__ == "__main__":
-    sync_catalog()
+    drop = "--drop-legacy" in sys.argv
+    sync_catalog(drop_legacy=drop)

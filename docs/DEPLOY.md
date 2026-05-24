@@ -64,13 +64,13 @@ Render **free plan has no Shell**, so use one of these:
 
 ### Option A — Browser (after `/api/seed` is deployed)
 
-Open once in your browser:
+Open once in your browser (upgrades old 48-item catalog automatically):
 
 ```text
-https://ai-product-recommendation-api.onrender.com/api/seed
+https://ai-product-recommendation-api.onrender.com/api/seed?force=true
 ```
 
-You should see JSON like `"product_count": 100`. Then check `/api/health`.
+You should see JSON like `"product_count": 194`. Then check `/api/health` — `product_count` should be ~194, not 48.
 
 ### Option B — curl (same)
 
