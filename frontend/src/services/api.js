@@ -26,7 +26,13 @@ export const api = {
   health: () => request('/health'),
   bootstrapSession: () => request('/session', { method: 'POST' }),
   getSession: () => request('/session'),
-  getProducts: () => request('/products'),
+  getProducts: ({ page = 1, limit = 24, category = '', sort = '' } = {}) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (category) params.set('category', category);
+    if (sort) params.set('sort', sort);
+    return request(`/products?${params}`);
+  },
+  getCategories: () => request('/products/categories'),
   searchProducts: (q) => request(`/products/search?q=${encodeURIComponent(q)}`),
   getSearchSuggestions: (q) =>
     request(`/products/search/suggestions?q=${encodeURIComponent(q)}`),

@@ -25,7 +25,7 @@ def build_user_likes():
 def main():
     products = list(products_collection().find())
     if not products:
-        print("No products in DB. Run: python scripts/seed_data.py")
+        print("No products in DB. Run: python scripts/sync_catalog.py")
         return
 
     user_likes = build_user_likes()

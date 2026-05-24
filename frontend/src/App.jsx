@@ -15,6 +15,12 @@ export default function App() {
   const [demoUsers, setDemoUsers] = useState([]);
   const [demoUserId, setDemoUserId] = useState('user_1');
   const [catalog, setCatalog] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [catalogPage, setCatalogPage] = useState(1);
+  const [catalogTotal, setCatalogTotal] = useState(0);
+  const [catalogPages, setCatalogPages] = useState(1);
+  const [catalogLoadingMore, setCatalogLoadingMore] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearch, setActiveSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,6 +59,15 @@ export default function App() {
     if (!productId) return;
     const data = await api.getSimilar(productId, 5);
     setSimilar(data.similar_products || []);
+  }, []);
+
+  const loadCatalog = useCallback(async (page = 1, { append = false, category = '' } = {}) => {
+    const data = await api.getProducts({ page, limit: 24, category });
+    setCatalogPage(data.page || page);
+    setCatalogTotal(data.total ?? 0);
+    setCatalogPages(data.pages ?? 1);
+    setCatalog((prev) => (append ? [...prev, ...(data.products || [])] : data.products || []));
+    return data;
   }, []);
 
   const runSearch = useCallback(async (query) => {
@@ -95,15 +110,15 @@ export default function App() {
         setStats(health);
         await api.bootstrapSession();
         await refreshSessionStats();
-        const [demoRes, productsRes] = await Promise.all([
+        const [demoRes, categoriesRes] = await Promise.all([
           api.getDemoUsers(),
-          api.getProducts(),
+          api.getCategories(),
         ]);
         setDemoUsers(demoRes.users || []);
         if (demoRes.users?.length) {
           setDemoUserId(demoRes.users[0].id);
         }
-        setCatalog(productsRes.products || []);
+        setCategories(categoriesRes.categories || []);
         await Promise.all([
           loadRecommendations(sessionId),
           loadRecentViews(sessionId),
@@ -155,6 +170,11 @@ export default function App() {
       cancelled = true;
     };
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (loading || searchMode) return;
+    loadCatalog(1, { category: categoryFilter }).catch((e) => setError(e.message));
+  }, [categoryFilter, loading, searchMode, loadCatalog]);
 
   useEffect(() => {
     if (!toast) return;
@@ -221,6 +241,18 @@ export default function App() {
     window.location.reload();
   }
 
+  async function handleLoadMore() {
+    if (catalogPage >= catalogPages || catalogLoadingMore) return;
+    try {
+      setCatalogLoadingMore(true);
+      await loadCatalog(catalogPage + 1, { append: true, category: categoryFilter });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCatalogLoadingMore(false);
+    }
+  }
+
   if (loading) {
     return <div className="app loading">Loading recommendation engine...</div>;
   }
@@ -237,7 +269,9 @@ export default function App() {
     <div className="app">
       <header className="header">
         <h1>AI Product Recommendation Engine</h1>
-        <p>Your session learns from what you view and like · KNN + cosine similarity</p>
+        <p>
+          Live catalog · hybrid recommendations (content + collaborative filtering)
+        </p>
         {stats?.product_count != null && (
           <p className="stats-line">
             Catalog: <strong>{stats.product_count}</strong> products · Session:{' '}
@@ -387,7 +421,7 @@ export default function App() {
       {!searchMode && (
         <section className="section">
           <h2 className="section-title">
-            For You <span className="badge">KNN + your likes</span>
+            For You <span className="badge">hybrid ML</span>
           </h2>
           <p className="section-hint">{forYouHint}</p>
           {recommendations.length === 0 ? (
@@ -438,10 +472,33 @@ export default function App() {
           <span className="badge">MongoDB + REST</span>
         </h2>
         {!searchMode && (
-          <p className="section-hint">
-            Click a product to record a <strong>view</strong> and see similar items. Use{' '}
-            <strong>♥ Like</strong> to train For You.
-          </p>
+          <>
+            <p className="section-hint">
+              Click a product to record a <strong>view</strong> and see similar items. Use{' '}
+              <strong>♥ Like</strong> to train For You.
+            </p>
+            {categories.length > 0 && (
+              <div className="category-bar">
+                <button
+                  type="button"
+                  className={`chip ${categoryFilter === '' ? 'active' : ''}`}
+                  onClick={() => setCategoryFilter('')}
+                >
+                  All
+                </button>
+                {categories.map((c) => (
+                  <button
+                    key={c.slug}
+                    type="button"
+                    className={`chip ${categoryFilter === c.slug ? 'active' : ''}`}
+                    onClick={() => setCategoryFilter(c.slug)}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
         <div className="grid">
           {displayProducts.map((p) => (
@@ -454,6 +511,24 @@ export default function App() {
             />
           ))}
         </div>
+        {!searchMode && catalog.length > 0 && (
+          <div className="catalog-footer">
+            <span className="catalog-meta">
+              Showing {catalog.length} of {catalogTotal} products
+              {categoryFilter ? ` in ${categories.find((c) => c.slug === categoryFilter)?.name || categoryFilter}` : ''}
+            </span>
+            {catalogPage < catalogPages && (
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={catalogLoadingMore}
+                onClick={handleLoadMore}
+              >
+                {catalogLoadingMore ? 'Loading…' : 'Load more'}
+              </button>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );

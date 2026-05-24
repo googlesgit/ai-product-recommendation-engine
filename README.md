@@ -7,7 +7,7 @@ Full-stack recommendation system: **React** frontend, **Flask** REST API, **Mong
 | Resume bullet | Where in code | Interview answer |
 |---------------|---------------|------------------|
 | React + Flask REST | `frontend/`, `backend/routes/api.py` | Separation of concerns; frontend calls JSON APIs |
-| Personalized recommendations | `GET /api/recommendations/user/<id>` | User vector = avg of liked product features; KNN finds similar products |
+| Personalized recommendations | `GET /api/recommendations/user/<id>` | Hybrid: content (KNN + cosine) + item–item CF from co-likes |
 | Search + similarity insights | `GET /api/products/search`, `GET /api/similar/<id>` | Cosine similarity ranks products by feature vectors |
 | KNN + cosine similarity | `backend/models/recommender.py` | Cosine = angle between vectors; KNN = k nearest in that space |
 | 25% accuracy improvement | `backend/scripts/evaluate_model.py` | Feature engineering (normalize price, category encoding, rating weight) vs raw features |
@@ -19,9 +19,15 @@ Full-stack recommendation system: **React** frontend, **Flask** REST API, **Mong
 ```
 Browser (React)  --HTTP-->  Flask API  --pymongo-->  MongoDB
                               |
-                         recommender.py
-                         (sklearn KNN + cosine)
+                         recommender.py + collaborative.py
+                         (KNN + cosine + co-like CF)
 ```
+
+## Milestones A + C (catalog + hybrid ML)
+
+- **Dynamic catalog** — syncs ~100 products from [DummyJSON](https://dummyjson.com/products) with images, brands, categories
+- **Pagination & filters** — `GET /api/products?page=&limit=&category=`, category chips in UI
+- **Hybrid For You** — 55% content similarity + 45% collaborative filtering from session/demo likes
 
 ## Phase 1 — Real sessions (live)
 
@@ -36,9 +42,9 @@ Browser (React)  --HTTP-->  Flask API  --pymongo-->  MongoDB
 ## Highlights (portfolio-ready)
 
 - **Smart search** — multi-word queries (e.g. `micro oven` → microwave), relevance scoring, live debounced search, suggestions
-- **Personalized For You** — KNN on user taste profile built from likes
+- **Personalized For You** — hybrid content + collaborative filtering
 - **Similarity panel** — cosine similarity on engineered features (price, category, rating, TF-IDF text)
-- **51-product catalog** — includes phones (iPhone, Galaxy), diverse categories; auto-seeds when DB is empty
+- **Live catalog** — DummyJSON sync with product images; auto-loads when DB is empty
 - **Polished UI** — search results section, quick-search chips, toast on like, catalog stats
 
 ## Live demo (GitHub Pages + Render)
@@ -58,14 +64,15 @@ GitHub Pages serves the React build. The Flask API runs on Render with MongoDB A
 # From project root
 docker compose up --build
 
-# Re-seed after pulling new catalog (optional if DB already has data)
+# Sync catalog + demo personas (optional if DB already has data)
+docker compose exec api python scripts/sync_catalog.py
 docker compose exec api python scripts/seed_data.py
 
 # Open app
 open http://localhost:3000
 ```
 
-> **Note:** The API auto-seeds when the database is empty. If you already ran an older seed, run `seed_data.py` again to load the expanded catalog (48 products).
+> **Note:** The API auto-syncs from DummyJSON when the database is empty. If you still have an old hand-seeded catalog, run `sync_catalog.py` (add `drop_legacy=True` in code or `POST /api/catalog/sync?drop_legacy=true`).
 
 **Without Docker** (local dev):
 
@@ -78,6 +85,7 @@ cd backend && python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 export MONGO_URI=mongodb://localhost:27017
 export MONGO_DB=recommendations
+python scripts/sync_catalog.py
 python scripts/seed_data.py
 python app.py
 
@@ -90,16 +98,19 @@ cd frontend && npm install && npm start
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/health` | Health check |
-| GET/POST | `/api/seed` | One-time catalog load when DB is empty (no Render Shell needed) |
+| GET/POST | `/api/seed` | One-time DummyJSON catalog load when DB is empty |
+| POST | `/api/catalog/sync` | Refresh catalog from DummyJSON (`?drop_legacy=true` to remove old items) |
+| GET | `/api/products/categories` | Category list for filters |
+| GET | `/api/products?page=&limit=&category=` | Paginated catalog browse |
 | GET/POST | `/api/session` | Register session; returns like/view counts |
 | GET | `/api/interactions/recent` | Recently viewed products for a user/session |
 | GET | `/api/users/demo` | Sample profiles only |
-| GET | `/api/products` | List products |
+| GET | `/api/products` | List products (supports pagination + category filter) |
 | GET | `/api/products/search?q=` | Smart search (multi-token + relevance score) |
 | GET | `/api/products/search/suggestions?q=` | Search autocomplete hints |
 | GET | `/api/products/<id>` | Product detail |
 | GET | `/api/similar/<id>?k=5` | Similar products + cosine scores |
-| GET | `/api/recommendations/user/<id>?k=8` | Personalized for user |
+| GET | `/api/recommendations/user/<id>?k=8` | Hybrid personalized recommendations |
 | POST | `/api/interactions` | Record like/view (`user_id`, `product_id`, `type`) |
 
 ## Run evaluation (25% metric story)
@@ -132,10 +143,12 @@ Compares **baseline** features vs **engineered** features using Precision@K on h
 ```
 backend/
   app.py                 # Flask entry
-  models/recommender.py  # ML core
-  routes/api.py          # REST routes
-  services/database.py   # MongoDB
-  scripts/seed_data.py   # Sample catalog + users
+  models/recommender.py      # Content + hybrid ranker
+  models/collaborative.py    # Item–item CF from likes
+  routes/api.py              # REST routes
+  services/database.py       # MongoDB
+  scripts/sync_catalog.py    # DummyJSON catalog sync
+  scripts/seed_data.py       # Demo user personas
 frontend/
   src/App.jsx            # Main UI
   src/components/        # Cards, search, insights

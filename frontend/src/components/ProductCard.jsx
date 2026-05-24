@@ -7,20 +7,37 @@ export default function ProductCard({
   showRelevance,
   compact,
 }) {
+  const img = product.image_url;
+
   return (
     <article
       className={`card ${selected ? 'selected' : ''} ${compact ? 'card-compact' : ''}`}
       onClick={() => onSelect?.(product)}
     >
+      {img && (
+        <div className="card-image-wrap">
+          <img
+            className="card-image"
+            src={img}
+            alt=""
+            loading="lazy"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        </div>
+      )}
       <div className="category">{product.category}</div>
       <h3>{product.name}</h3>
       <p className="desc">{product.description}</p>
       <div className="meta">
         <span>${Number(product.price).toFixed(2)}</span>
-        <span>★ {product.rating} ({product.review_count} reviews)</span>
+        <span>
+          ★ {product.rating} ({product.review_count} reviews)
+        </span>
       </div>
       {showScore && product.similarity_score != null && (
-        <p className="score">Similarity: {(product.similarity_score * 100).toFixed(1)}%</p>
+        <p className="score">Match: {(product.similarity_score * 100).toFixed(1)}%</p>
       )}
       {showRelevance && product.relevance_score != null && (
         <p className="score relevance">Match score: {product.relevance_score}</p>

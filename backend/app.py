@@ -17,16 +17,17 @@ _seed_checked = False
 
 
 def _ensure_seeded():
-    """Load demo catalog when database is empty (first request after deploy)."""
+    """Load live catalog + demo personas when database is empty."""
     from services.database import products_collection
 
     if products_collection().count_documents({}) > 0:
         return
-    from scripts.seed_data import seed
-
-    seed()
+    from scripts.seed_data import seed_demo_users
+    from scripts.sync_catalog import sync_catalog
     from routes.api import refresh_recommender
 
+    sync_catalog()
+    seed_demo_users()
     refresh_recommender()
 
 

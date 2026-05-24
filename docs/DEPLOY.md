@@ -28,7 +28,7 @@ GitHub Pages hosts **only the React UI** (static files). Flask and MongoDB run e
 2. [dashboard.render.com](https://dashboard.render.com) → **New** → **Blueprint** → connect `googlesgit/ai-product-recommendation-engine`.
 3. When prompted, set **`MONGO_URI`** to your Atlas string from Step 1.
 4. Deploy. Note your service URL, e.g. `https://ai-product-recommendation-api.onrender.com`.
-5. Test: open `https://YOUR-SERVICE.onrender.com/api/health` — should show `"database": "connected"` and `"product_count": 48` (auto-seed on first start).
+5. Test: open `https://YOUR-SERVICE.onrender.com/api/health` — should show `"database": "connected"` and `"product_count": 100` (auto-sync from DummyJSON on first start).
 
 **Cold start:** Free Render sleeps after ~15 min idle; first request may take 30–60 seconds.
 
@@ -70,7 +70,7 @@ Open once in your browser:
 https://ai-product-recommendation-api.onrender.com/api/seed
 ```
 
-You should see JSON like `"product_count": 48`. Then check `/api/health`.
+You should see JSON like `"product_count": 100`. Then check `/api/health`.
 
 ### Option B — curl (same)
 
@@ -84,14 +84,23 @@ curl -X POST https://ai-product-recommendation-api.onrender.com/api/seed
 cd backend
 export MONGO_URI="mongodb+srv://USER:PASSWORD@cluster0.tkmieck.mongodb.net/recommendations?retryWrites=true&w=majority"
 export MONGO_DB=recommendations
+python3 scripts/sync_catalog.py
 python3 scripts/seed_data.py
 ```
 
 Push the latest code first if `/api/seed` returns 404.
 
+### Refresh catalog (after deploy)
+
+```bash
+curl -X POST "https://YOUR-SERVICE.onrender.com/api/catalog/sync?drop_legacy=true"
+```
+
+Removes old hand-seeded products when `drop_legacy=true`, upserts ~100 items from DummyJSON, and refreshes demo likes.
+
 ### Re-seed later (reset catalog)
 
-Run Option C again, or drop collections in Atlas Data Explorer, then hit `/api/seed` again.
+Drop the `products` collection in Atlas, then hit `/api/seed` again — or run Option C.
 
 ---
 

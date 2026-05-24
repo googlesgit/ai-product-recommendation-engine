@@ -1,5 +1,6 @@
 """Flask REST API routes."""
 
+import math
 from datetime import datetime, timezone
 
 from bson import ObjectId
@@ -29,12 +30,17 @@ def _serialize_product(doc: dict) -> dict:
     return out
 
 
+def _load_interactions() -> list[dict]:
+    return list(interactions_collection().find({"type": "like"}))
+
+
 def _get_recommender() -> ProductRecommender:
     global _recommender
     if _recommender is None:
         products = list(products_collection().find())
         _recommender = ProductRecommender(use_engineered_features=True)
         _recommender.fit(products)
+        _recommender.fit_collaborative(_load_interactions())
     return _recommender
 
 
@@ -64,10 +70,7 @@ def health():
 
 @api_bp.route("/seed", methods=["GET", "POST"])
 def bootstrap_seed():
-    """
-    One-time catalog load when DB is empty (Render free tier has no Shell).
-    Only runs if there are zero products — safe to expose for portfolio demos.
-    """
+    """Load catalog from DummyJSON when DB is empty."""
     existing = products_collection().count_documents({})
     if existing > 0:
         return jsonify({
@@ -77,27 +80,87 @@ def bootstrap_seed():
             "message": "Catalog already loaded",
         })
 
-    from scripts.seed_data import seed
+    from scripts.seed_data import seed_demo_users
+    from scripts.sync_catalog import sync_catalog
 
-    seed()
+    sync_catalog()
+    seed_demo_users()
     refresh_recommender()
     count = products_collection().count_documents({})
     return jsonify({
         "ok": True,
         "already_seeded": False,
         "product_count": count,
-        "message": f"Seeded {count} products",
+        "message": f"Loaded {count} products from catalog API",
     }), 201
+
+
+@api_bp.route("/catalog/sync", methods=["POST"])
+def sync_catalog_endpoint():
+    """Refresh product catalog from DummyJSON (upsert)."""
+    from scripts.seed_data import seed_demo_users
+    from scripts.sync_catalog import sync_catalog
+
+    drop_legacy = request.args.get("drop_legacy", "false").lower() in ("1", "true", "yes")
+    synced = sync_catalog(drop_legacy=drop_legacy)
+    seed_demo_users()
+    refresh_recommender()
+    total = products_collection().count_documents({})
+    return jsonify({
+        "ok": True,
+        "synced": synced,
+        "product_count": total,
+        "message": "Catalog synced; recommender refreshed",
+    })
+
+
+@api_bp.route("/products/categories")
+def list_categories():
+    items = []
+    seen = set()
+    for doc in products_collection().find({}, {"category": 1, "category_slug": 1}):
+        slug = doc.get("category_slug") or doc.get("category", "").lower()
+        display = doc.get("category") or slug
+        if slug in seen:
+            continue
+        seen.add(slug)
+        items.append({"slug": slug, "name": display})
+    items.sort(key=lambda x: x["name"])
+    return jsonify({"categories": items, "count": len(items)})
 
 
 @api_bp.route("/products")
 def list_products():
     sort = request.args.get("sort")
-    cursor = products_collection().find()
-    products = [_serialize_product(p) for p in cursor]
+    category = (request.args.get("category") or "").strip()
+    page = max(int(request.args.get("page", 1)), 1)
+    limit = min(max(int(request.args.get("limit", 24)), 1), 48)
+
+    query: dict = {}
+    if category:
+        query["category_slug"] = category.lower()
+
+    total = products_collection().count_documents(query)
+    cursor = products_collection().find(query)
+
     if sort == "rating":
-        products.sort(key=lambda p: (p.get("rating", 0), p.get("review_count", 0)), reverse=True)
-    return jsonify({"products": products, "count": len(products)})
+        cursor = cursor.sort([("rating", -1), ("review_count", -1)])
+    else:
+        cursor = cursor.sort([("name", 1)])
+
+    skip = (page - 1) * limit
+    products = [_serialize_product(p) for p in cursor.skip(skip).limit(limit)]
+    pages = max(1, math.ceil(total / limit)) if total else 1
+
+    return jsonify({
+        "products": products,
+        "count": len(products),
+        "total": total,
+        "page": page,
+        "pages": pages,
+        "limit": limit,
+        "category": category or None,
+    })
 
 
 @api_bp.route("/products/search")
@@ -198,7 +261,7 @@ def user_recommendations(user_id):
         "user_id": user_id,
         "recommendations": items,
         "liked_count": len(liked_ids),
-        "algorithm": "knn_cosine_profile",
+        "algorithm": "hybrid_content_collaborative",
     })
 
 
