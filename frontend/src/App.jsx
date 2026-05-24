@@ -188,8 +188,8 @@ export default function App() {
       }
       setToast(
         res.duplicate
-          ? `You already liked “${product.name}”`
-          : `Liked “${product.name}” — your For You feed is updating`
+          ? `“${product.name}” is already in your likes`
+          : `Added “${product.name}” to your likes — check For You above`
       );
     } catch (e) {
       setError(e.message);
@@ -324,7 +324,24 @@ export default function App() {
           {searching ? (
             <p className="empty">Searching catalog…</p>
           ) : searchResults.length === 0 ? (
-            <p className="empty">No products matched your search.</p>
+            <div className="empty-panel">
+              <p className="empty">No products matched &ldquo;{activeSearch}&rdquo;.</p>
+              <p className="empty-sub">
+                Try one word (e.g. book, yoga, microwave), a category, or a shorter term.
+              </p>
+              <div className="quick-searches">
+                {POPULAR_SEARCHES.map((term) => (
+                  <button
+                    key={term}
+                    type="button"
+                    className="chip"
+                    onClick={() => handlePickSuggestion(term)}
+                  >
+                    {term}
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="grid">
               {searchResults.map((p) => (

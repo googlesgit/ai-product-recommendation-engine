@@ -14,6 +14,20 @@ def _tokens(query: str) -> list[str]:
     return [t for t in re.split(r"[^\w]+", _normalize(query)) if len(t) >= 2]
 
 
+def _token_matches(token: str, *fields: str) -> bool:
+    """Match whole field substring or word prefix (e.g. algo → algorithms)."""
+    for raw in fields:
+        text = _normalize(str(raw))
+        if not text:
+            continue
+        if token in text:
+            return True
+        for word in text.split():
+            if len(word) >= 2 and (token in word or word.startswith(token)):
+                return True
+    return False
+
+
 def _searchable_text(doc: dict) -> str:
     parts = [
         doc.get("name", ""),
@@ -45,18 +59,17 @@ def score_product(doc: dict, query: str, tokens: list[str]) -> float:
     elif q in blob:
         score += 25
 
-    # Each token contributes; all tokens must match somewhere for a result
     if tokens:
         matched_tokens = 0
         for token in tokens:
             token_score = 0.0
-            if token in name:
+            if _token_matches(token, doc.get("name", "")):
                 token_score = 12
-            elif token in cat:
+            elif _token_matches(token, doc.get("category", "")):
                 token_score = 8
-            elif token in desc:
+            elif _token_matches(token, doc.get("description", "")):
                 token_score = 6
-            elif token in blob:
+            elif _token_matches(token, blob):
                 token_score = 4
             if token_score > 0:
                 matched_tokens += 1
@@ -74,27 +87,66 @@ def score_product(doc: dict, query: str, tokens: list[str]) -> float:
     return score
 
 
-def search_products(docs: list[dict], query: str, limit: int = 48) -> list[dict[str, Any]]:
-    q = _normalize(query)
-    if not q:
-        return []
-
-    tokens = _tokens(query)
+def _rank(docs: list[dict], query: str, tokens: list[str], limit: int) -> list[dict[str, Any]]:
     ranked: list[tuple[float, dict]] = []
-
     for doc in docs:
         s = score_product(doc, query, tokens)
         if s > 0:
             ranked.append((s, doc))
-
     ranked.sort(key=lambda x: (-x[0], -x[1].get("rating", 0), -x[1].get("review_count", 0)))
-
     out = []
     for s, doc in ranked[:limit]:
         item = dict(doc)
         item["relevance_score"] = round(s, 2)
         out.append(item)
     return out
+
+
+def _rank_any_token(docs: list[dict], query: str, tokens: list[str], limit: int) -> list[dict[str, Any]]:
+    """Fallback: match if any token hits (broader, for typos / loose queries)."""
+    if not tokens:
+        return []
+    ranked: list[tuple[float, dict]] = []
+    for doc in docs:
+        blob = _searchable_text(doc)
+        hits = sum(
+            1
+            for t in tokens
+            if _token_matches(
+                t,
+                doc.get("name", ""),
+                doc.get("category", ""),
+                doc.get("description", ""),
+                blob,
+            )
+        )
+        if hits == 0:
+            continue
+        score = hits * 10 + float(doc.get("rating") or 0)
+        ranked.append((score, doc))
+    ranked.sort(key=lambda x: (-x[0], -x[1].get("rating", 0)))
+    out = []
+    for s, doc in ranked[:limit]:
+        item = dict(doc)
+        item["relevance_score"] = round(s, 2)
+        out.append(item)
+    return out
+
+
+def search_products(docs: list[dict], query: str, limit: int = 48) -> list[dict[str, Any]]:
+    q = _normalize(query)
+    if not q:
+        return []
+
+    tokens = _tokens(query)
+    # Strict: all tokens must match (e.g. micro + oven → microwave)
+    results = _rank(docs, query, tokens, limit)
+    if results:
+        return results
+    # Fallback: any token matches (e.g. "running" or partial terms)
+    if tokens:
+        return _rank_any_token(docs, query, tokens, limit)
+    return []
 
 
 def suggest_queries(docs: list[dict], partial: str, limit: int = 6) -> list[str]:
