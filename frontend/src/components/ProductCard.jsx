@@ -5,10 +5,11 @@ export default function ProductCard({
   selected,
   showScore,
   showRelevance,
+  compact,
 }) {
   return (
     <article
-      className={`card ${selected ? 'selected' : ''}`}
+      className={`card ${selected ? 'selected' : ''} ${compact ? 'card-compact' : ''}`}
       onClick={() => onSelect?.(product)}
     >
       <div className="category">{product.category}</div>

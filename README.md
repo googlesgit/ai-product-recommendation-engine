@@ -23,6 +23,16 @@ Browser (React)  --HTTP-->  Flask API  --pymongo-->  MongoDB
                          (sklearn KNN + cosine)
 ```
 
+## Phase 1 — Real sessions (live)
+
+- **Anonymous session** per browser (`localStorage` + `X-Session-Id`)
+- **Events**: `view` on product click, `like` on ♥ (stored in MongoDB with timestamps)
+- **For You** built from **your** likes, not a fixed demo user
+- **Recently viewed** from your session activity
+- **Try sample** profiles optional (Alex / Jordan / Sam)
+
+---
+
 ## Highlights (portfolio-ready)
 
 - **Smart search** — multi-word queries (e.g. `micro oven` → microwave), relevance scoring, live debounced search, suggestions
@@ -80,6 +90,10 @@ cd frontend && npm install && npm start
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/health` | Health check |
+| GET/POST | `/api/seed` | One-time catalog load when DB is empty (no Render Shell needed) |
+| GET/POST | `/api/session` | Register session; returns like/view counts |
+| GET | `/api/interactions/recent` | Recently viewed products for a user/session |
+| GET | `/api/users/demo` | Sample profiles only |
 | GET | `/api/products` | List products |
 | GET | `/api/products/search?q=` | Smart search (multi-token + relevance score) |
 | GET | `/api/products/search/suggestions?q=` | Search autocomplete hints |

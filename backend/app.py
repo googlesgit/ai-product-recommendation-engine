@@ -1,7 +1,5 @@
 """Flask application entry point."""
 
-import os
-
 from flask import Flask
 from flask_cors import CORS
 
@@ -9,12 +7,17 @@ from config import FLASK_DEBUG, FLASK_PORT
 from routes.api import api_bp
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(
+    app,
+    resources={r"/api/*": {"origins": "*", "allow_headers": ["Content-Type", "X-Session-Id"]}},
+)
 app.register_blueprint(api_bp, url_prefix="/api")
+
+_seed_checked = False
 
 
 def _ensure_seeded():
-    """Load demo catalog when database is empty (local/docker first run)."""
+    """Load demo catalog when database is empty (first request after deploy)."""
     from services.database import products_collection
 
     if products_collection().count_documents({}) > 0:
@@ -27,7 +30,13 @@ def _ensure_seeded():
     refresh_recommender()
 
 
-with app.app_context():
+@app.before_request
+def _seed_on_first_request():
+    """Connect/seed after gunicorn fork — avoids PyMongo fork + SSL issues at import."""
+    global _seed_checked
+    if _seed_checked:
+        return
+    _seed_checked = True
     try:
         _ensure_seeded()
     except Exception as exc:

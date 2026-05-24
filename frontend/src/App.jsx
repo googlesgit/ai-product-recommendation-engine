@@ -4,12 +4,16 @@ import SearchBar from './components/SearchBar';
 import Toast from './components/Toast';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
 import { api } from './services/api';
+import { clearSession, getSessionId } from './services/session';
 
 const POPULAR_SEARCHES = ['headphones', 'microwave', 'yoga', 'books', 'electronics', 'skincare'];
 
 export default function App() {
-  const [users, setUsers] = useState([]);
-  const [selectedUser, setSelectedUser] = useState('user_1');
+  const [sessionId] = useState(() => getSessionId());
+  const [sessionStats, setSessionStats] = useState({ likes: 0, views: 0 });
+  const [profileMode, setProfileMode] = useState('session');
+  const [demoUsers, setDemoUsers] = useState([]);
+  const [demoUserId, setDemoUserId] = useState('user_1');
   const [catalog, setCatalog] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearch, setActiveSearch] = useState('');
@@ -17,6 +21,7 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
+  const [recentViews, setRecentViews] = useState([]);
   const [similar, setSimilar] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -24,12 +29,23 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [stats, setStats] = useState(null);
 
+  const activeUserId = profileMode === 'demo' ? demoUserId : sessionId;
   const debouncedQuery = useDebouncedValue(searchQuery, 450);
   const searchMode = activeSearch.trim().length > 0;
+
+  const refreshSessionStats = useCallback(async () => {
+    const data = await api.getSession();
+    setSessionStats(data.stats || { likes: 0, views: 0 });
+  }, []);
 
   const loadRecommendations = useCallback(async (userId) => {
     const data = await api.getRecommendations(userId);
     setRecommendations(data.recommendations || []);
+  }, []);
+
+  const loadRecentViews = useCallback(async (userId) => {
+    const data = await api.getRecentViews(userId);
+    setRecentViews(data.products || []);
   }, []);
 
   const loadSimilar = useCallback(async (productId) => {
@@ -73,13 +89,21 @@ export default function App() {
         setError(null);
         const health = await api.health();
         setStats(health);
-        const [usersRes, productsRes] = await Promise.all([
-          api.getUsers(),
+        await api.bootstrapSession();
+        await refreshSessionStats();
+        const [demoRes, productsRes] = await Promise.all([
+          api.getDemoUsers(),
           api.getProducts(),
         ]);
-        setUsers(usersRes.users || []);
+        setDemoUsers(demoRes.users || []);
+        if (demoRes.users?.length) {
+          setDemoUserId(demoRes.users[0].id);
+        }
         setCatalog(productsRes.products || []);
-        await loadRecommendations(selectedUser);
+        await Promise.all([
+          loadRecommendations(sessionId),
+          loadRecentViews(sessionId),
+        ]);
       } catch (e) {
         const hint = import.meta.env.VITE_API_URL
           ? ' Check that the API is up and CORS allows this origin.'
@@ -94,10 +118,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!loading && selectedUser) {
-      loadRecommendations(selectedUser).catch((e) => setError(e.message));
+    if (loading) return;
+    loadRecommendations(activeUserId).catch((e) => setError(e.message));
+    if (profileMode === 'session') {
+      loadRecentViews(activeUserId).catch(() => {});
+    } else {
+      setRecentViews([]);
     }
-  }, [selectedUser, loading, loadRecommendations]);
+  }, [activeUserId, profileMode, loading, loadRecommendations, loadRecentViews]);
 
   useEffect(() => {
     if (loading) return;
@@ -130,8 +158,20 @@ export default function App() {
     return () => clearTimeout(id);
   }, [toast]);
 
+  async function trackView(productId) {
+    try {
+      await api.recordInteraction(activeUserId, productId, 'view');
+      if (profileMode === 'session') {
+        await Promise.all([refreshSessionStats(), loadRecentViews(sessionId)]);
+      }
+    } catch {
+      /* non-blocking */
+    }
+  }
+
   async function handleSelectProduct(product) {
     setSelectedProduct(product);
+    trackView(product.id);
     try {
       await loadSimilar(product.id);
     } catch (e) {
@@ -141,9 +181,16 @@ export default function App() {
 
   async function handleLike(product) {
     try {
-      await api.likeProduct(selectedUser, product.id);
-      await loadRecommendations(selectedUser);
-      setToast(`Liked “${product.name}” — refreshing your recommendations`);
+      const res = await api.likeProduct(activeUserId, product.id);
+      await loadRecommendations(activeUserId);
+      if (profileMode === 'session') {
+        await refreshSessionStats();
+      }
+      setToast(
+        res.duplicate
+          ? `You already liked “${product.name}”`
+          : `Liked “${product.name}” — your For You feed is updating`
+      );
     } catch (e) {
       setError(e.message);
     }
@@ -154,44 +201,88 @@ export default function App() {
     runSearch(text);
   }
 
+  function switchToDemo(userId) {
+    setProfileMode('demo');
+    setDemoUserId(userId);
+  }
+
+  function switchToSession() {
+    setProfileMode('session');
+    setSelectedProduct(null);
+    setSimilar([]);
+  }
+
+  function handleNewSession() {
+    clearSession();
+    window.location.reload();
+  }
+
   if (loading) {
     return <div className="app loading">Loading recommendation engine...</div>;
   }
 
   const displayProducts = searchMode ? searchResults : catalog;
+  const forYouHint =
+    profileMode === 'session'
+      ? sessionStats.likes > 0
+        ? `Built from ${sessionStats.likes} like(s) in your session`
+        : 'Like products below to build your taste profile'
+      : 'Sample profile with pre-loaded likes';
 
   return (
     <div className="app">
       <header className="header">
         <h1>AI Product Recommendation Engine</h1>
-        <p>
-          Personalized picks via KNN + cosine similarity · Flask API · MongoDB
-        </p>
+        <p>Your session learns from what you view and like · KNN + cosine similarity</p>
         {stats?.product_count != null && (
           <p className="stats-line">
-            Catalog: <strong>{stats.product_count}</strong> products
-            {stats.database && (
+            Catalog: <strong>{stats.product_count}</strong> products · Session:{' '}
+            <strong title={sessionId}>{sessionId.slice(0, 14)}…</strong>
+            {profileMode === 'session' && (
               <>
                 {' '}
-                · Database: <strong>{stats.database}</strong>
+                · <strong>{sessionStats.likes}</strong> likes ·{' '}
+                <strong>{sessionStats.views}</strong> views
               </>
             )}
           </p>
         )}
-        <div className="controls">
-          <label htmlFor="user-select">Demo user profile</label>
+
+        <div className="profile-bar">
+          {profileMode === 'session' ? (
+            <>
+              <span className="profile-pill active">Your profile</span>
+              <button type="button" className="btn btn-outline btn-sm" onClick={handleNewSession}>
+                New session
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn btn-outline btn-sm" onClick={switchToSession}>
+              ← Back to your profile
+            </button>
+          )}
+          <span className="profile-divider">|</span>
+          <label htmlFor="demo-select" className="demo-label">
+            Try sample:
+          </label>
           <select
-            id="user-select"
-            value={selectedUser}
-            onChange={(e) => setSelectedUser(e.target.value)}
+            id="demo-select"
+            value={profileMode === 'demo' ? demoUserId : ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v) switchToDemo(v);
+              else switchToSession();
+            }}
           >
-            {users.map((u) => (
+            <option value="">—</option>
+            {demoUsers.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.name}
               </option>
             ))}
           </select>
         </div>
+
         <SearchBar
           value={searchQuery}
           onChange={setSearchQuery}
@@ -228,28 +319,12 @@ export default function App() {
             <span className="badge">{searching ? '…' : `${searchResults.length} found`}</span>
           </h2>
           <p className="section-hint">
-            Showing matches for <strong>&ldquo;{activeSearch}&rdquo;</strong> — ranked by relevance
-            (name, category, description, tags).
+            Matches for <strong>&ldquo;{activeSearch}&rdquo;</strong>
           </p>
           {searching ? (
             <p className="empty">Searching catalog…</p>
           ) : searchResults.length === 0 ? (
-            <div className="empty-panel">
-              <p className="empty">No products matched your search.</p>
-              <p className="empty-sub">Try a shorter term or pick a suggestion below.</p>
-              <div className="quick-searches">
-                {POPULAR_SEARCHES.map((term) => (
-                  <button
-                    key={term}
-                    type="button"
-                    className="chip"
-                    onClick={() => handlePickSuggestion(term)}
-                  >
-                    {term}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <p className="empty">No products matched your search.</p>
           ) : (
             <div className="grid">
               {searchResults.map((p) => (
@@ -267,11 +342,32 @@ export default function App() {
         </section>
       )}
 
+      {!searchMode && profileMode === 'session' && recentViews.length > 0 && (
+        <section className="section">
+          <h2 className="section-title">
+            Recently viewed <span className="badge">your activity</span>
+          </h2>
+          <div className="grid grid-compact">
+            {recentViews.map((p) => (
+              <ProductCard
+                key={p.id}
+                product={p}
+                compact
+                selected={selectedProduct?.id === p.id}
+                onSelect={handleSelectProduct}
+                onLike={handleLike}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {!searchMode && (
         <section className="section">
           <h2 className="section-title">
-            For You <span className="badge">KNN + user profile</span>
+            For You <span className="badge">KNN + your likes</span>
           </h2>
+          <p className="section-hint">{forYouHint}</p>
           {recommendations.length === 0 ? (
             <p className="empty">No recommendations yet — like some products in the catalog below.</p>
           ) : (
@@ -282,6 +378,7 @@ export default function App() {
                   product={p}
                   showScore
                   onSelect={handleSelectProduct}
+                  onLike={handleLike}
                 />
               ))}
             </div>
@@ -292,11 +389,11 @@ export default function App() {
       {selectedProduct && (
         <section className="section insights-panel">
           <h2 className="section-title">
-            Similarity insights <span className="badge">cosine similarity</span>
+            Similar to &ldquo;{selectedProduct.name}&rdquo;
+            <span className="badge">cosine similarity</span>
           </h2>
-          <h4>Selected: {selectedProduct.name}</h4>
           <p className="section-hint">
-            Products ranked by how close their feature vectors are (price, category, rating, text).
+            View recorded for your session. Ranked by feature-vector distance.
           </p>
           {similar.length === 0 ? (
             <p className="empty">No similar products found.</p>
@@ -320,8 +417,8 @@ export default function App() {
         </h2>
         {!searchMode && (
           <p className="section-hint">
-            Search above to filter instantly. Click a product for similarity insights; like items to
-            train your For You feed.
+            Click a product to record a <strong>view</strong> and see similar items. Use{' '}
+            <strong>♥ Like</strong> to train For You.
           </p>
         )}
         <div className="grid">

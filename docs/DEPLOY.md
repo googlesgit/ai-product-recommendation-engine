@@ -58,16 +58,40 @@ After ~2 minutes, open:
 
 ---
 
-## Step 4 — Re-seed production DB (optional)
+## Step 4 — Load products (seed database)
 
-If you need to reset catalog on Atlas:
+Render **free plan has no Shell**, so use one of these:
+
+### Option A — Browser (after `/api/seed` is deployed)
+
+Open once in your browser:
+
+```text
+https://ai-product-recommendation-api.onrender.com/api/seed
+```
+
+You should see JSON like `"product_count": 48`. Then check `/api/health`.
+
+### Option B — curl (same)
 
 ```bash
-# From your Mac, with MONGO_URI set to Atlas:
-export MONGO_URI="mongodb+srv://..."
-export MONGO_DB=recommendations
-cd backend && python scripts/seed_data.py
+curl -X POST https://ai-product-recommendation-api.onrender.com/api/seed
 ```
+
+### Option C — From your Mac (works immediately, no redeploy)
+
+```bash
+cd backend
+export MONGO_URI="mongodb+srv://USER:PASSWORD@cluster0.tkmieck.mongodb.net/recommendations?retryWrites=true&w=majority"
+export MONGO_DB=recommendations
+python3 scripts/seed_data.py
+```
+
+Push the latest code first if `/api/seed` returns 404.
+
+### Re-seed later (reset catalog)
+
+Run Option C again, or drop collections in Atlas Data Explorer, then hit `/api/seed` again.
 
 ---
 
@@ -80,6 +104,7 @@ cd backend && python scripts/seed_data.py
 | Blank page / 404 on refresh | Workflow copies `404.html` for SPA routing — redeploy |
 | API slow first load | Render free tier cold start — wait and retry |
 | CORS errors | API already allows `*` on `/api/*` — check `VITE_API_URL` ends with `/api` |
+| `SSL handshake failed` / `TLSV1_ALERT_INTERNAL_ERROR` on Render | Atlas **Network Access** → `0.0.0.0/0`; ensure latest code uses `certifi` in `database.py`; redeploy |
 
 ---
 

@@ -64,9 +64,9 @@ PRODUCTS = [
 ]
 
 USERS = [
-    {"user_id": "user_1", "name": "Alex (Tech lover)"},
-    {"user_id": "user_2", "name": "Jordan (Fitness)"},
-    {"user_id": "user_3", "name": "Sam (Bookworm)"},
+    {"user_id": "user_1", "name": "Alex (Tech lover)", "type": "demo"},
+    {"user_id": "user_2", "name": "Jordan (Fitness)", "type": "demo"},
+    {"user_id": "user_3", "name": "Sam (Bookworm)", "type": "demo"},
 ]
 
 # user_id -> list of product indices they "like"

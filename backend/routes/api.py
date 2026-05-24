@@ -1,11 +1,21 @@
 """Flask REST API routes."""
 
+from datetime import datetime, timezone
+
+from bson import ObjectId
+from bson.errors import InvalidId
 from flask import Blueprint, jsonify, request
 
 from models.recommender import ProductRecommender
 from services.database import get_db, interactions_collection, products_collection, users_collection
 from services.search import search_products as rank_search_results
 from services.search import suggest_queries
+from services.session import (
+    ensure_session_user,
+    interaction_stats,
+    is_session_id,
+    liked_product_ids,
+)
 
 api_bp = Blueprint("api", __name__)
 
@@ -50,6 +60,34 @@ def health():
         "database": "connected" if db_ok else "unavailable",
         "product_count": product_count,
     })
+
+
+@api_bp.route("/seed", methods=["GET", "POST"])
+def bootstrap_seed():
+    """
+    One-time catalog load when DB is empty (Render free tier has no Shell).
+    Only runs if there are zero products — safe to expose for portfolio demos.
+    """
+    existing = products_collection().count_documents({})
+    if existing > 0:
+        return jsonify({
+            "ok": True,
+            "already_seeded": True,
+            "product_count": existing,
+            "message": "Catalog already loaded",
+        })
+
+    from scripts.seed_data import seed
+
+    seed()
+    refresh_recommender()
+    count = products_collection().count_documents({})
+    return jsonify({
+        "ok": True,
+        "already_seeded": False,
+        "product_count": count,
+        "message": f"Seeded {count} products",
+    }), 201
 
 
 @api_bp.route("/products")
@@ -119,15 +157,27 @@ def similar_products(product_id):
     })
 
 
+@api_bp.route("/session", methods=["GET", "POST"])
+def session_info():
+    """Register anonymous session and return activity summary."""
+    session_id = request.headers.get("X-Session-Id") or request.args.get("session_id")
+    if not session_id or not is_session_id(session_id):
+        return jsonify({"error": "Valid X-Session-Id header required (sess_...)"}), 400
+    ensure_session_user(session_id)
+    stats = interaction_stats(session_id)
+    return jsonify({
+        "session_id": session_id,
+        "name": "You",
+        "type": "session",
+        "stats": stats,
+    })
+
+
 @api_bp.route("/recommendations/user/<user_id>")
 def user_recommendations(user_id):
     k = int(request.args.get("k", 8))
-    interactions = interactions_collection().find(
-        {"user_id": user_id, "type": {"$in": ["like", "purchase", "view"]}}
-    )
-    liked_ids = []
-    for row in interactions:
-        liked_ids.append(str(row["product_id"]))
+    # Profile is built from explicit likes — views power "Recently viewed" only
+    liked_ids = liked_product_ids(user_id)
 
     rec = _get_recommender()
     raw = rec.recommend_for_user(liked_ids, k=k, exclude_ids=set(liked_ids))
@@ -149,28 +199,81 @@ def user_recommendations(user_id):
 @api_bp.route("/interactions", methods=["POST"])
 def record_interaction():
     data = request.get_json() or {}
-    user_id = data.get("user_id")
+    user_id = data.get("user_id") or request.headers.get("X-Session-Id")
     product_id = data.get("product_id")
     interaction_type = data.get("type", "like")
 
     if not user_id or not product_id:
         return jsonify({"error": "user_id and product_id required"}), 400
 
-    interactions_collection().insert_one({
-        "user_id": str(user_id),
-        "product_id": str(product_id),
+    user_id = str(user_id)
+    product_id = str(product_id)
+    allowed = {"like", "view", "click", "purchase"}
+    if interaction_type not in allowed:
+        return jsonify({"error": f"type must be one of {sorted(allowed)}"}), 400
+
+    if is_session_id(user_id):
+        ensure_session_user(user_id)
+
+    col = interactions_collection()
+    if interaction_type == "like":
+        existing = col.find_one({
+            "user_id": user_id,
+            "product_id": product_id,
+            "type": "like",
+        })
+        if existing:
+            return jsonify({"ok": True, "message": "Already liked", "duplicate": True})
+
+    col.insert_one({
+        "user_id": user_id,
+        "product_id": product_id,
         "type": interaction_type,
+        "created_at": datetime.now(timezone.utc),
     })
-    refresh_recommender()
-    return jsonify({"ok": True, "message": "Interaction recorded"}), 201
+    if interaction_type == "like":
+        refresh_recommender()
+    return jsonify({"ok": True, "message": "Interaction recorded", "type": interaction_type}), 201
 
 
-@api_bp.route("/users")
-def list_users():
-    users = list(users_collection().find())
+@api_bp.route("/interactions/recent")
+def recent_views():
+    user_id = request.args.get("user_id") or request.headers.get("X-Session-Id")
+    k = int(request.args.get("k", 6))
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+
+    cursor = interactions_collection().find(
+        {"user_id": str(user_id), "type": "view"},
+    ).sort("created_at", -1).limit(k * 3)
+
+    seen = set()
+    products = []
+    for row in cursor:
+        pid = str(row["product_id"])
+        if pid in seen:
+            continue
+        seen.add(pid)
+        try:
+            doc = products_collection().find_one({"_id": ObjectId(pid)})
+        except InvalidId:
+            doc = None
+        if doc:
+            products.append(_serialize_product(doc))
+        if len(products) >= k:
+            break
+
+    return jsonify({"user_id": user_id, "products": products, "count": len(products)})
+
+
+@api_bp.route("/users/demo")
+def list_demo_users():
+    users = list(users_collection().find({"type": "demo"}))
+    if not users:
+        users = list(users_collection().find({"user_id": {"$regex": "^user_"}}))
     return jsonify({
         "users": [
-            {"id": u["user_id"], "name": u.get("name", u["user_id"])}
+            {"id": u["user_id"], "name": u.get("name", u["user_id"]), "type": "demo"}
             for u in users
         ]
     })
