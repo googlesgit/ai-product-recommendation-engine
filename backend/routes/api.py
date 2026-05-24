@@ -114,7 +114,13 @@ def search_products():
         if "relevance_score" in doc:
             item["relevance_score"] = doc["relevance_score"]
         results.append(item)
-    return jsonify({"products": results, "query": q, "count": len(results)})
+    payload = {"products": results, "query": q, "count": len(results)}
+    if len(results) == 0:
+        payload["message"] = (
+            "No products in our catalog match that search. "
+            "Try a category like electronics or books, or browse the full catalog below."
+        )
+    return jsonify(payload)
 
 
 @api_bp.route("/products/search/suggestions")

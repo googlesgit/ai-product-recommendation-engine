@@ -38,7 +38,7 @@ Browser (React)  --HTTP-->  Flask API  --pymongo-->  MongoDB
 - **Smart search** — multi-word queries (e.g. `micro oven` → microwave), relevance scoring, live debounced search, suggestions
 - **Personalized For You** — KNN on user taste profile built from likes
 - **Similarity panel** — cosine similarity on engineered features (price, category, rating, TF-IDF text)
-- **48-product catalog** — diverse categories; auto-seeds MongoDB on first API start if empty
+- **51-product catalog** — includes phones (iPhone, Galaxy), diverse categories; auto-seeds when DB is empty
 - **Polished UI** — search results section, quick-search chips, toast on like, catalog stats
 
 ## Live demo (GitHub Pages + Render)

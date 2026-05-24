@@ -6,7 +6,7 @@ import { useDebouncedValue } from './hooks/useDebouncedValue';
 import { api } from './services/api';
 import { clearSession, getSessionId } from './services/session';
 
-const POPULAR_SEARCHES = ['headphones', 'microwave', 'yoga', 'books', 'electronics', 'skincare'];
+const POPULAR_SEARCHES = ['iphone', 'headphones', 'microwave', 'yoga', 'books', 'electronics'];
 
 export default function App() {
   const [sessionId] = useState(() => getSessionId());
@@ -19,6 +19,7 @@ export default function App() {
   const [activeSearch, setActiveSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
+  const [searchMessage, setSearchMessage] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [recentViews, setRecentViews] = useState([]);
@@ -59,6 +60,7 @@ export default function App() {
     setActiveSearch(q);
     if (!q) {
       setSearchResults([]);
+      setSearchMessage('');
       setSearching(false);
       return;
     }
@@ -67,6 +69,7 @@ export default function App() {
       setError(null);
       const data = await api.searchProducts(q);
       setSearchResults(data.products || []);
+      setSearchMessage(data.message || '');
     } catch (e) {
       setError(e.message);
       setSearchResults([]);
@@ -79,6 +82,7 @@ export default function App() {
     setSearchQuery('');
     setActiveSearch('');
     setSearchResults([]);
+    setSearchMessage('');
     setSuggestions([]);
   }, []);
 
@@ -327,7 +331,8 @@ export default function App() {
             <div className="empty-panel">
               <p className="empty">No products matched &ldquo;{activeSearch}&rdquo;.</p>
               <p className="empty-sub">
-                Try one word (e.g. book, yoga, microwave), a category, or a shorter term.
+                {searchMessage ||
+                  'We do not stock that item yet — try electronics, books, or a shorter term.'}
               </p>
               <div className="quick-searches">
                 {POPULAR_SEARCHES.map((term) => (
